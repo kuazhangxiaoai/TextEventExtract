@@ -25,9 +25,9 @@ class DuEEDataset(Dataset):
 
     def load_one_item(self, index, mode):
         if mode == 'train':
-            text_info, event_obj = self.train_list[index], self.train_list[index]
+            text_info, event_obj = self.train_list[index]['text'], self.train_list[index]['event_list']
         elif mode == 'val':
-            text_info, event_obj = self.dev_list[index], self.dev_list[index]
+            text_info, event_obj = self.dev_list[index]['text'], self.dev_list[index]['event_list']
         return text_info, event_obj
 
     def __getitem__(self, index):
