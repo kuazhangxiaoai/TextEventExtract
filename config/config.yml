@@ -1,0 +1,10 @@
+data:
+  name: DuEE
+  root_path: /media/yanggang/847C02507C023D84/EventExtract/DuEE
+  batch_size: 8
+  workers: 4
+
+hyp:
+  epoach: 100
+
+
