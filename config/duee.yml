@@ -1,6 +1,7 @@
 data:
   name: DuEE
   root_path: /media/yanggang/847C02507C023D84/EventExtract/DuEE
+  mode: train
   batch_size: 8
   workers: 8
 

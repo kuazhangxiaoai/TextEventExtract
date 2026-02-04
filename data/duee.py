@@ -7,12 +7,11 @@ class DuEEDataset(Dataset):
     """
         This is dataset class for reading DuEE dataset
     """
-    def __init__(self, root_path, mode):
+    def __init__(self, cfg:dict):
         super().__init__()
-        self.root_path = root_path
-        self.mode = mode
-        self.train_file = os.path.join(root_path, 'train.json')
-        self.dev_file = os.path.join(root_path, 'dev.json')
+        _, self.root_path, self.mode = cfg.values()
+        self.train_file = os.path.join(self.root_path, 'train.json')
+        self.dev_file = os.path.join(self.root_path, 'dev.json')
         with open(self.train_file) as f:
             lines = f.readlines()
             self.train_list = [json.loads(line) for line in lines]
@@ -35,6 +34,18 @@ class DuEEDataset(Dataset):
 
     def __len__(self):
         return len(self.train_list) if self.mode == 'train' else len(self.dev_list)
+
+    @staticmethod
+    def collate_fn(batch):
+        new_batch = {
+            "sentences": [],
+            "augments": [],
+        }
+        for i, b in enumerate(batch):
+            sentence, argument = b[0], b[1]
+            new_batch['sentences'].append(sentence)
+            new_batch['augments'].append(argument)
+        return new_batch
 
 
 

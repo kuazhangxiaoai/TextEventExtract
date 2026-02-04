@@ -9,7 +9,7 @@ class Trainer:
     def build_dataset(self):
         data_cfg = self.cfg['data']
         name, root_path = data_cfg['name'], data_cfg['root_path']
-        self.dataset = dataset_map[name](root_path=root_path, mode='train')
+        self.dataset = dataset_map[name](data_cfg)
         self.dataloader = build_dataloader(self.dataset, data_cfg['batch_size'], data_cfg['workers'])
 
     def setup_train(self):
@@ -29,7 +29,7 @@ class Trainer:
 
 
 if __name__ == '__main__':
-    cfg = load_config('./config/config.yml')
+    cfg = load_config('config/ace.yml')
     trainer = Trainer(cfg)
     trainer.train()
     print('done')
