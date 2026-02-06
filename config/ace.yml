@@ -6,10 +6,11 @@ data:
   train_subset: [nw, bn]
   dev_subset: [bc]
   test_subset: [cts, wl, un]
+  nlp_tool: ./weights/stanza-nlp
 dataloader:
   batch_size: 1
   workers: 1
-  shuffle: true
+  shuffle: false
 hyp:
   epoach: 100
 

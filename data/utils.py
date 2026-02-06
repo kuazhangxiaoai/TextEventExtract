@@ -1,5 +1,24 @@
 import os
+import stanza
 from torch.utils.data import DataLoader
+
+LANG_MAP = {
+    "English": "en",
+    "Chinese": "zh",
+    "Arabic": "ar"
+}
+
+PIPLINE_PROTERTIE_MAP = {
+    "English": 'tokenize,pos,lemma',
+    "Chinese": 'tokenize,pos,ner',
+    "Arabic": 'tokenize,pos,lemma',
+}
+
+def get_pipline(weight_dir: str,lang: str):
+    pros = PIPLINE_PROTERTIE_MAP[lang]
+    lang_s = LANG_MAP[lang]
+    pipline = stanza.Pipeline(lang_s, processors=pros, dir=weight_dir, download_method=None, use_gpu=False)
+    return pipline
 
 
 
@@ -7,11 +26,11 @@ def get_triggers(argment:list[object]):
     return [arg['trigger'] for arg in argment]
 
 
-def build_dataloader(dataset, batchsize, workers):
+def build_dataloader(dataset, batchsize, workers, shuffle):
     return DataLoader(
         dataset,
         batchsize,
-        True,
+        shuffle,
         None,
         None,
         num_workers=workers,

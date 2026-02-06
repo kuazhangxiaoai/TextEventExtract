@@ -8,9 +8,13 @@ class Trainer:
 
     def build_dataset(self):
         data_cfg = self.cfg['data']
+        dataloader_cfg = self.cfg['dataloader']
         name, root_path = data_cfg['name'], data_cfg['root_path']
         self.dataset = dataset_map[name](data_cfg)
-        self.dataloader = build_dataloader(self.dataset, data_cfg['batch_size'], data_cfg['workers'])
+        self.dataloader = build_dataloader(self.dataset,
+                                           dataloader_cfg['batch_size'],
+                                           dataloader_cfg['workers'],
+                                           dataloader_cfg['shuffle'])
 
     def setup_train(self):
         hyp = self.cfg['hyp']

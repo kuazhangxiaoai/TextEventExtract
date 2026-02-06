@@ -2,12 +2,10 @@ import os
 import json
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
-from stanfordcorenlp import StanfordCoreNLP
 import nltk
 import re
-from data.utils import get_files_from_dir, get_base_name
+from data.utils import get_files_from_dir, get_base_name, get_pipline
 from torch.utils.data import Dataset
-import copy
 
 class Parser:
     def __init__(self, sgm_path, apf_path):
@@ -292,7 +290,14 @@ class ACEDataset(Dataset):
     """
     def __init__(self, cfg: dict):
         super().__init__()
-        _, self.root_path,  self.lang, self.mode, self.train_subset, self.dev_subset,self.test_subset  = cfg.values()
+        #self.pipline = stanza.Pipeline(lang='en',
+       #                                processors='tokenize,pos,lemma',
+       #                                dir='/media/yanggang/847C02507C023D84/python_workspace/TextEventExtract/weights/stanza-en',
+        #                               download_method=None)
+
+
+        _, self.root_path,  self.lang, self.mode, self.train_subset, self.dev_subset,self.test_subset, self.nlp_tools  = cfg.values()
+        self.pipline = get_pipline(weight_dir=self.nlp_tools, lang=self.lang)
 
         assert self.mode in ["train", "val", "test"]
         assert self.lang in ['English', 'Chinese', 'Arabic']
@@ -323,10 +328,15 @@ class ACEDataset(Dataset):
     def __getitem__(self, index):
         sgm_file = self.all_train_sgm_files[index]
         apf_file = self.get_apf_filename(sgm_file)
-        ag_file = self.get_ag_filename(sgm_file)
 
-        result = self.preprocessing(sgm_path=sgm_file, apf_path=apf_file)
+        ace_list = self.preprocessing(sgm_path=sgm_file, apf_path=apf_file)
 
+        for i, item in enumerate(ace_list):
+            sentence = item['sentence']
+            gold_entity_mentions, gold_event_mentions = [],[]
+            _nlp_sentences = self.pipline(sentence).sentences
+            assert len(_nlp_sentences) == 1, "error for parse sentences"
+            _nlp_words = _nlp_sentences.words
         return None
 
     def get_apf_filename(self, sgm_file):
@@ -335,8 +345,6 @@ class ACEDataset(Dataset):
     def get_ag_filename(self, sgm_file):
         return sgm_file.replace('.sgm', '.ag.xml')
 
-    def get_text(self, doc):
-        return doc['text'].replace("<TURN>","").replace("</TURN>","").strip()
 
     @staticmethod
     def collate_fn(batch):
@@ -346,119 +354,12 @@ class ACEDataset(Dataset):
         return self.get_length()
 
     def preprocessing(self, sgm_path, apf_path):
-        result = []
-        argument_count = 0
-        with StanfordCoreNLP("./weights/stanford-corenlp-full-2018-10-05", memory='8g', timeout=60000) as nlp:
-            parser = Parser(sgm_path=sgm_path, apf_path=apf_path)
-            for item in parser.get_data():
-                data = dict()
-                data['sentence'] = item['sentence']
-                data['golden-entity-mentions'] = []
-                data['golden-event-mentions'] = []
-
-                try:
-                    nlp_res_raw = nlp.annotate(item['sentence'],
-                                               properties={'annotators': 'tokenize,ssplit,pos,lemma,parse'})
-                    nlp_res = json.loads(nlp_res_raw)
-                except Exception as e:
-                    print('[Warning] StanfordCore Exception: ', nlp_res_raw, 'This sentence will be ignored.')
-                    print(
-                        'If you want to include all sentences, please refer to this issue: https://github.com/nlpcl-lab/ace2005-preprocessing/issues/1')
-                    continue
-
-                tokens = nlp_res['sentences'][0]['tokens']
-
-                if len(nlp_res['sentences']) >= 2:
-                    # TODO: issue where the sentence segmentation of NTLK and StandfordCoreNLP do not match
-                    # This error occurred so little that it was temporarily ignored (< 20 sentences).
-                    continue
-
-                data['stanford-colcc'] = []
-                for dep in nlp_res['sentences'][0]['enhancedPlusPlusDependencies']:
-                    data['stanford-colcc'].append(
-                        '{}/dep={}/gov={}'.format(dep['dep'], dep['dependent'] - 1, dep['governor'] - 1))
-
-                data['words'] = list(map(lambda x: x['word'], tokens))
-                data['pos-tags'] = list(map(lambda x: x['pos'], tokens))
-                data['lemma'] = list(map(lambda x: x['lemma'], tokens))
-                data['parse'] = nlp_res['sentences'][0]['parse']
-
-                sent_start_pos = item['position'][0]
-
-                for entity_mention in item['golden-entity-mentions']:
-                    position = entity_mention['position']
-                    start_idx, end_idx = find_token_index(
-                        tokens=tokens,
-                        start_pos=position[0] - sent_start_pos,
-                        end_pos=position[1] - sent_start_pos + 1,
-                        phrase=entity_mention['text'],
-                    )
-
-                    entity_mention['start'] = start_idx
-                    entity_mention['end'] = end_idx
-
-                    del entity_mention['position']
-
-                    # head
-                    head_position = entity_mention["head"]["position"]
-
-                    head_start_idx, head_end_idx = find_token_index(
-                        tokens=tokens,
-                        start_pos=head_position[0] - sent_start_pos,
-                        end_pos=head_position[1] - sent_start_pos + 1,
-                        phrase=entity_mention["head"]["text"]
-                    )
-
-                    entity_mention["head"]["start"] = head_start_idx
-                    entity_mention["head"]["end"] = head_end_idx
-                    del entity_mention["head"]["position"]
-
-                    data['golden-entity-mentions'].append(entity_mention)
-
-                for event_mention in item['golden-event-mentions']:
-                    # same event mention can be shared
-                    event_mention = copy.deepcopy(event_mention)
-                    position = event_mention['trigger']['position']
-                    start_idx, end_idx = find_token_index(
-                        tokens=tokens,
-                        start_pos=position[0] - sent_start_pos,
-                        end_pos=position[1] - sent_start_pos + 1,
-                        phrase=event_mention['trigger']['text'],
-                    )
-
-                    event_mention['trigger']['start'] = start_idx
-                    event_mention['trigger']['end'] = end_idx
-                    del event_mention['trigger']['position']
-                    del event_mention['position']
-
-                    arguments = []
-                    argument_count += len(event_mention['arguments'])
-                    for argument in event_mention['arguments']:
-                        position = argument['position']
-                        start_idx, end_idx = find_token_index(
-                            tokens=tokens,
-                            start_pos=position[0] - sent_start_pos,
-                            end_pos=position[1] - sent_start_pos + 1,
-                            phrase=argument['text'],
-                        )
-
-                        argument['start'] = start_idx
-                        argument['end'] = end_idx
-                        del argument['position']
-
-                        arguments.append(argument)
-
-                    event_mention['arguments'] = arguments
-                    data['golden-event-mentions'].append(event_mention)
-
-                result.append(data)
-
-        return result
-
+        parser = Parser(sgm_path=sgm_path, apf_path=apf_path)
+        return parser.get_data()
 
     def get_length(self):
-
         return len(self.data_subset_map[self.mode])
+
 
 
 
