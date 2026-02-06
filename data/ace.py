@@ -87,7 +87,7 @@ class Parser:
                     })
             for relation_mention in self.relation_mentions:
                 item['golden-relation-mentions'].append({
-                    'relation_type': relation_mention['relation-type'],
+                    'relation-type': relation_mention['relation-type'],
                     'text': self.clean_text(relation_mention['text']),
                     'position': relation_mention['position'],
                     "relation-id": relation_mention['relation-id']
@@ -117,6 +117,24 @@ class Parser:
             entity_mention['position'][1] += offset
             entity_mention['head']["position"][0] += offset
             entity_mention['head']["position"][1] += offset
+
+        for relation_mention in self.relation_mentions:
+            offset1 = self.find_correct_offset(
+                sgm_text=self.sgm_text,
+                start_index=relation_mention['position'][0],
+                text=relation_mention['text']
+            )
+            relation_mention['position'][0] += offset1
+            relation_mention['position'][1] += offset1
+
+            for argment in relation_mention['arguments']:
+                offset2 = self.find_correct_offset(
+                    sgm_text=self.sgm_text,
+                    start_index=argment['position'][0],
+                    text=argment['text']
+                )
+                argment['position'][0] += offset2
+                argment['position'][1] += offset2
 
         for event_mention in self.event_mentions:
             offset1 = self.find_correct_offset(

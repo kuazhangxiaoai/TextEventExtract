@@ -28,10 +28,6 @@ class Trainer:
                 print(batch)
 
 
-
-
-
-
 if __name__ == '__main__':
     cfg = load_config('config/ace.yml')
     trainer = Trainer(cfg)
