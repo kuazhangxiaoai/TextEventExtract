@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 import nltk
 import re
-from data.utils import get_files_from_dir, get_base_name, get_pipline
+from data.utils import get_files_from_dir, get_base_name, get_pipline, get_tokenizer, find_word_positions
 from torch.utils.data import Dataset
 
 class Parser:
@@ -17,7 +17,7 @@ class Parser:
         self.sentences = []
         self.sgm_text = ''
 
-        self.entity_mentions, self.event_mentions = self.parse_xml(apf_path)
+        self.entity_mentions, self.event_mentions, self.relation_mentions = self.parse_xml(apf_path)
         self.sents_with_pos = self.parse_sgm(sgm_path)
         self.fix_wrong_position()
 
@@ -44,6 +44,7 @@ class Parser:
             entity_map = dict()
             item['golden-entity-mentions'] = []
             item['golden-event-mentions'] = []
+            item['golden-relation-mentions'] = []
 
             for entity_mention in self.entity_mentions:
                 entity_position = entity_mention['position']
@@ -84,6 +85,13 @@ class Parser:
                         'position': event_position,
                         'event_type': event_mention['event_type'],
                     })
+            for relation_mention in self.relation_mentions:
+                item['golden-relation-mentions'].append({
+                    'relation_type': relation_mention['relation-type'],
+                    'text': self.clean_text(relation_mention['text']),
+                    'position': relation_mention['position'],
+                    "relation-id": relation_mention['relation-id']
+                })
             data.append(item)
         return data
 
@@ -165,7 +173,7 @@ class Parser:
             return sents_with_pos
 
     def parse_xml(self, xml_path):
-        entity_mentions, event_mentions = [], []
+        entity_mentions, event_mentions, relation_mentions = [], [], []
         tree = ET.parse(xml_path)
         root = tree.getroot()
 
@@ -176,8 +184,39 @@ class Parser:
                 entity_mentions.extend(self.parse_value_timex_tag(child))
             elif child.tag == 'event':
                 event_mentions.extend(self.parse_event_tag(child))
+            elif child.tag == 'relation':
+                relation_mentions.extend(self.parse_relation_tag(child))
 
-        return entity_mentions, event_mentions
+        return entity_mentions, event_mentions, relation_mentions
+
+    @staticmethod
+    def parse_relation_tag(node):
+        relation_mentions = []
+        for child in node:
+            if child.tag != 'relation_mention':
+                continue
+            relation_mention = dict()
+            arguments = []
+            for child2 in child:
+                if child2.tag == 'relation_mention_argument':
+                    extent = child2[0]
+                    charset = extent[0]
+                    arguments.append({
+                        'text': charset.text,
+                        'position': [int(charset.attrib['START']), int(charset.attrib['END'])],
+                        'role': child2.attrib['ROLE'],
+                        'entity-id': child2.attrib['REFID']
+                    })
+                elif child2.tag == 'extent':
+                    charset = child2[0]
+                    relation_mention['relation-id'] = node.attrib['ID']
+                    relation_mention['relation-type'] = '{}:{}'.format(node.attrib['TYPE'], node.attrib['SUBTYPE'])
+                    relation_mention['text'] = charset.text
+                    relation_mention['position'] = [int(charset.attrib['START']), int(charset.attrib['END'])]
+
+            relation_mention['argments'] = arguments
+            relation_mentions.append(relation_mention)
+        return relation_mentions
 
     @staticmethod
     def parse_entity_tag(node):
@@ -198,7 +237,6 @@ class Parser:
             entity_mention['position'] = [int(charset.attrib['START']), int(charset.attrib['END'])]
             entity_mention["head"] = {"text": head_charset.text,
                                       "position": [int(head_charset.attrib['START']), int(head_charset.attrib['END'])]}
-
             entity_mentions.append(entity_mention)
 
         return entity_mentions
@@ -290,15 +328,9 @@ class ACEDataset(Dataset):
     """
     def __init__(self, cfg: dict):
         super().__init__()
-        #self.pipline = stanza.Pipeline(lang='en',
-       #                                processors='tokenize,pos,lemma',
-       #                                dir='/media/yanggang/847C02507C023D84/python_workspace/TextEventExtract/weights/stanza-en',
-        #                               download_method=None)
-
-
-        _, self.root_path,  self.lang, self.mode, self.train_subset, self.dev_subset,self.test_subset, self.nlp_tools  = cfg.values()
+        _, self.root_path,  self.lang, self.mode, self.train_subset, self.dev_subset,self.test_subset, self.nlp_tools, self.bert_tokenizer_path  = cfg.values()
         self.pipline = get_pipline(weight_dir=self.nlp_tools, lang=self.lang)
-
+        self.tokenizer = get_tokenizer(self.bert_tokenizer_path)
         assert self.mode in ["train", "val", "test"]
         assert self.lang in ['English', 'Chinese', 'Arabic']
         self.all_train_sgm_files = []
@@ -330,14 +362,35 @@ class ACEDataset(Dataset):
         apf_file = self.get_apf_filename(sgm_file)
 
         ace_list = self.preprocessing(sgm_path=sgm_file, apf_path=apf_file)
-
+        _inputs = []
         for i, item in enumerate(ace_list):
+            _input = {}
             sentence = item['sentence']
-            gold_entity_mentions, gold_event_mentions = [],[]
-            _nlp_sentences = self.pipline(sentence).sentences
-            assert len(_nlp_sentences) == 1, "error for parse sentences"
-            _nlp_words = _nlp_sentences.words
-        return None
+            _words = self.tokenizer.tokenize(sentence)
+            _index = self.tokenizer(sentence)
+            _input['words'] = _words
+            _input['index'] = _index.data['input_ids']
+            _entites, _events = [],[]
+            for i, entity_mention in enumerate(item['golden-entity-mentions']):
+                _entity = {
+                    'text': entity_mention['text'],
+                    'type': entity_mention['entity-type'],
+                    'position': entity_mention['position'],
+                    'position-sentence': find_word_positions(sentence, entity_mention['text'])[0],
+                }
+                _entites.append(_entity)
+
+            for i, event_mention in enumerate(item['golden-event-mentions']):
+                _event = {
+
+                }
+                _events.append(_event)
+
+            _input['entites'] = _entites
+            _input['event'] = _events
+            _inputs.append(_input)
+
+        return _inputs
 
     def get_apf_filename(self, sgm_file):
         return sgm_file.replace('.sgm', '.apf.xml')
@@ -355,6 +408,15 @@ class ACEDataset(Dataset):
 
     def preprocessing(self, sgm_path, apf_path):
         parser = Parser(sgm_path=sgm_path, apf_path=apf_path)
+        for i, item in enumerate(parser.get_data()):
+            _input = {}
+            sentence = item['sentence']
+            _words = self.tokenizer.tokenize(sentence)
+            _index = self.tokenizer(sentence)
+            _input['words'] = _words
+            _input['index'] = _index.data['input_ids']
+            gold_entity_mentions, gold_event_mentions = [],[]
+            #_inputs.append(_input)
         return parser.get_data()
 
     def get_length(self):

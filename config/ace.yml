@@ -1,16 +1,18 @@
 data:
   name: ACE
   root_path: /media/yanggang/847C02507C023D84/EventExtract/ace_2005_td_v7/data
-  language: English
+  language: Chinese
   mode: train
   train_subset: [nw, bn]
   dev_subset: [bc]
   test_subset: [cts, wl, un]
   nlp_tool: /media/yanggang/847C02507C023D84/packages/stanza-nlp
+  bert: /media/yanggang/847C02507C023D84/packages/bert-base-chinese
 dataloader:
   batch_size: 1
   workers: 1
   shuffle: false
+  sample: null
 hyp:
   epoach: 100
 
