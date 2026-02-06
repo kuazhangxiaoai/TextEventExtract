@@ -6,7 +6,7 @@ data:
   train_subset: [nw, bn]
   dev_subset: [bc]
   test_subset: [cts, wl, un]
-  nlp_tool: ./weights/stanza-nlp
+  nlp_tool: /media/yanggang/847C02507C023D84/packages/stanza-nlp
 dataloader:
   batch_size: 1
   workers: 1
