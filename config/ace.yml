@@ -6,14 +6,19 @@ data:
   train_subset: [nw, bn]
   dev_subset: [bc]
   test_subset: [cts, wl, un]
-  nlp_tool: /media/yanggang/847C02507C023D84/packages/stanza-nlp
   bert: /media/yanggang/847C02507C023D84/packages/bert-base-chinese
+  stat_path: ace-stat.cache
 dataloader:
-  batch_size: 1
+  batch_size: 8
   workers: 1
   shuffle: false
   sample: null
+model:
+  name: TriNet
+  split: true
+  bert_hid_size: 768
 hyp:
   epoach: 100
+  device: cuda
 
 

@@ -1,11 +1,17 @@
 import os
 import json
 import xml.etree.ElementTree as ET
+
+import torch
+from markdown_it.rules_inline import entity
+from tqdm import tqdm
+import numpy as np
 from bs4 import BeautifulSoup
 import nltk
 import re
-from data.utils import get_files_from_dir, get_base_name, get_pipline, get_tokenizer, find_word_positions
+from data.utils import get_files_from_dir, get_base_name, pad_2d, get_tokenizer, pad_3d, pad_4d
 from torch.utils.data import Dataset
+from torch.nn.utils.rnn import pad_sequence
 
 class Parser:
     def __init__(self, sgm_path, apf_path):
@@ -71,14 +77,12 @@ class Parser:
                         except KeyError:
                             print('[Warning] The entity in the other sentence is mentioned. This argument will be ignored.')
                             continue
-
                         event_arguments.append({
                             'role': argument['role'],
                             'position': argument['position'],
                             'entity-type': entity_type,
                             'text': self.clean_text(argument['text']),
                         })
-
                     item['golden-event-mentions'].append({
                         'trigger': event_mention['trigger'],
                         'arguments': event_arguments,
@@ -86,12 +90,29 @@ class Parser:
                         'event_type': event_mention['event_type'],
                     })
             for relation_mention in self.relation_mentions:
-                item['golden-relation-mentions'].append({
-                    'relation-type': relation_mention['relation-type'],
-                    'text': self.clean_text(relation_mention['text']),
-                    'position': relation_mention['position'],
-                    "relation-id": relation_mention['relation-id']
-                })
+                relation_postion = relation_mention['position']
+                if text_position[0] < relation_postion[0] and relation_postion[1]<text_position[1]:
+                    relation_argments = []
+                    for argument in relation_mention['argments']:
+                        try:
+                            entity_type = entity_map[argument['entity-id']]['entity-type']
+                        except KeyError:
+                            print('[Warning] The entity in the other sentence is mentioned. This argument will be ignored.')
+                            continue
+                        relation_argments.append({
+                            'entity-id': argument['entity-id'],
+                            'entity-type': entity_type,
+                            'position': argument['position'],
+                            'role': argument['role'],
+                            'text': self.clean_text(argument['text']),
+                        })
+                    item['golden-relation-mentions'].append({
+                        'relation-type': relation_mention['relation-type'],
+                        'text': self.clean_text(relation_mention['text']),
+                        'position': relation_mention['position'],
+                        "relation-id": relation_mention['relation-id'],
+                        'arguments': relation_argments
+                    })
             data.append(item)
         return data
 
@@ -127,7 +148,7 @@ class Parser:
             relation_mention['position'][0] += offset1
             relation_mention['position'][1] += offset1
 
-            for argment in relation_mention['arguments']:
+            for argment in relation_mention['argments']:
                 offset2 = self.find_correct_offset(
                     sgm_text=self.sgm_text,
                     start_index=argment['position'][0],
@@ -272,7 +293,7 @@ class Parser:
                         charset = child2[0]
                         event_mention['text'] = charset.text
                         event_mention['position'] = [int(charset.attrib['START']), int(charset.attrib['END'])]
-                    if child2.tag == 'anchor':
+                    if child2.tag == 'anchor':   #anchor is trigger
                         charset = child2[0]
                         event_mention['trigger'] = {
                             'text': charset.text,
@@ -346,8 +367,7 @@ class ACEDataset(Dataset):
     """
     def __init__(self, cfg: dict):
         super().__init__()
-        _, self.root_path,  self.lang, self.mode, self.train_subset, self.dev_subset,self.test_subset, self.nlp_tools, self.bert_tokenizer_path  = cfg.values()
-        self.pipline = get_pipline(weight_dir=self.nlp_tools, lang=self.lang)
+        _, self.root_path,  self.lang, self.mode, self.train_subset, self.dev_subset,self.test_subset, self.bert_tokenizer_path, self.stat_path  = cfg.values()
         self.tokenizer = get_tokenizer(self.bert_tokenizer_path)
         assert self.mode in ["train", "val", "test"]
         assert self.lang in ['English', 'Chinese', 'Arabic']
@@ -374,41 +394,87 @@ class ACEDataset(Dataset):
             "val": self.all_dev_base_names,
             "test": self.all_test_base_names
         }
+        if os.path.exists(self.stat_path):
+            self.entity_types, self.event_types, self.relation_types = self.load_stat()
+        else:
+            self.entity_types, self.event_types, self.relation_types = self.stat()
+        self.entity_types_num = len(self.entity_types)
+        self.event_types_num = len(self.event_types)
+        self.relation_types_num = len(self.relation_types)
+
+
+    def stat(self):
+        event_types, entity_types, relation_types = {}, {}, {}
+        all_files = self.all_train_sgm_files + self.all_dev_sgm_files + self.all_test_sgm_files
+        pbar = tqdm(all_files, desc="stating")
+        for sgm_file in pbar:
+            apf_file = self.get_apf_filename(sgm_file)
+            annotations = self.preprocessing(sgm_path=sgm_file, apf_path=apf_file)
+            for component in annotations['components']:
+                for event in component['event']:
+                    type = event['type']
+                    if type not in event_types:
+                        event_types[type] = len(event_types)
+                for entity in component['entity']:
+                    type = entity['type']
+                    if type not in entity_types:
+                        entity_types[type] = len(entity_types)
+
+                for relation in component['relation']:
+                    type = relation['type']
+                    if type not in relation_types:
+                        relation_types[type] = len(relation_types)
+        with open(self.stat_path, 'w') as f:
+            types_obj = {
+                "entity-type": entity_types,
+                "event-type": event_types,
+                "relation-type": relation_types
+            }
+            json.dump(types_obj, f)
+
+        return entity_types, event_types, relation_types
+
+    def load_stat(self):
+        with open(self.stat_path, 'r') as f:
+            types_obj = json.load(f)
+            entity_types, event_types, relation_types = types_obj["entity-type"], types_obj["event-type"], types_obj["relation-type"]
+        return entity_types, event_types, relation_types
 
     def __getitem__(self, index):
         sgm_file = self.all_train_sgm_files[index]
         apf_file = self.get_apf_filename(sgm_file)
+        annotations = self.preprocessing(sgm_path=sgm_file, apf_path=apf_file)
+        triggers, event_ids = [],[]
+        for component in annotations['components']:
+            for event in component['event']:
+                text, position, type = event['trigger'], event['trigger-position'], event['type']
+                triggers.append({"tri": text, "pos": position, "type": type})
+                event_ids.append(self.event_types[type])
+        contexts = annotations['context']
+        inputs = self.tokenize(contexts)
+        atten_mask, word_mask1d, word_mask2d = self.get_masks(inputs)
+        tri_targets = self.get_targets(inputs, triggers)
+        pos_event_list, neg_event_list = self.get_event_list(event_ids)
+        return (torch.LongTensor(inputs),
+                torch.from_numpy(atten_mask),
+                torch.from_numpy(word_mask1d),
+                torch.from_numpy(word_mask2d),
+                torch.from_numpy(tri_targets),
+                torch.LongTensor(pos_event_list),
+                torch.LongTensor(neg_event_list))
 
-        ace_list = self.preprocessing(sgm_path=sgm_file, apf_path=apf_file)
-        _inputs = []
-        for i, item in enumerate(ace_list):
-            _input = {}
-            sentence = item['sentence']
-            _words = self.tokenizer.tokenize(sentence)
-            _index = self.tokenizer(sentence)
-            _input['words'] = _words
-            _input['index'] = _index.data['input_ids']
-            _entites, _events = [],[]
-            for i, entity_mention in enumerate(item['golden-entity-mentions']):
-                _entity = {
-                    'text': entity_mention['text'],
-                    'type': entity_mention['entity-type'],
-                    'position': entity_mention['position'],
-                    'position-sentence': find_word_positions(sentence, entity_mention['text'])[0],
-                }
-                _entites.append(_entity)
+    def get_event_list(self, event_ids):
+        total_event_set = set([i for i in range(self.event_types_num)])
+        event_set = set()
+        event_ids.append(-1) if len(event_ids) == 0 else None
+        for i in event_ids:
+            event_set.add(i)
+        pos = list(event_set)
+        neg = list(total_event_set - event_set)
+        return pos, neg
 
-            for i, event_mention in enumerate(item['golden-event-mentions']):
-                _event = {
-
-                }
-                _events.append(_event)
-
-            _input['entites'] = _entites
-            _input['event'] = _events
-            _inputs.append(_input)
-
-        return _inputs
+    def tokenize(self, text):
+        return [self.tokenizer.cls_token_id] + self.tokenizer.convert_tokens_to_ids([x for x in text.lower()]) + [self.tokenizer.sep_token_id]
 
     def get_apf_filename(self, sgm_file):
         return sgm_file.replace('.sgm', '.apf.xml')
@@ -416,29 +482,96 @@ class ACEDataset(Dataset):
     def get_ag_filename(self, sgm_file):
         return sgm_file.replace('.sgm', '.ag.xml')
 
+    def get_masks(self, inputs):
+        """
+            获取MASK，在getitem阶段为1，全显示
+            :param inputs: 模型输入的索引
+            :return:
+        """
+        length = len(inputs) - 2
+        _attn_mask = np.array([1] * len(inputs))
+        _word_mask1d = np.array([1] * length)  # length: 语句长度=> _word_mask1d： 全为1可见， 去除start和end标记
+        _word_mask2d = np.triu(np.ones((length, length), dtype=np.bool_))
+        return _attn_mask, _word_mask1d, _word_mask2d
+
+    def get_targets(self, inputs, triggers):
+        length = len(inputs) - 2
+        _event_labels = np.zeros((self.event_types_num, length, length), dtype=np.bool_)
+        for tri in triggers:
+            tri_type_id = self.event_types[tri['type']]
+            _event_labels[tri_type_id, tri['pos'][0], tri['pos'][1]] = 1
+        return _event_labels
 
     @staticmethod
     def collate_fn(batch):
-        return None
+        inputs, atten_mask, word_mask1d, word_mask2d, tri_targets, pos_events, neg_events = zip(*batch)
+        max_tokens = np.max([x.shape[0] for x in word_mask1d])
+
+        bs = len(inputs)
+        inputs = pad_sequence(inputs, True)  # 长度按照最大的算，以0进行填充
+        atten_mask = pad_sequence(atten_mask, True)  # 长度按照最大的算，以0进行填充
+        word_mask1d = pad_sequence(word_mask1d, True)  # 长度按照最大的算，以0进行填充
+        pos_events = pad_sequence(pos_events, True, -1)
+        neg_events = pad_sequence(neg_events, True, -1)
+
+        word_mask2d = pad_2d(word_mask2d, (bs, max_tokens, max_tokens))
+        tri_targets = pad_3d(tri_targets, (bs, tri_targets[0].shape[0], max_tokens, max_tokens))
+
+        return inputs, atten_mask, word_mask1d, word_mask2d, tri_targets, pos_events, neg_events
 
     def __len__(self):
         return self.get_length()
 
     def preprocessing(self, sgm_path, apf_path):
         parser = Parser(sgm_path=sgm_path, apf_path=apf_path)
+        _context = parser.sgm_text
+        args = []
         for i, item in enumerate(parser.get_data()):
-            _input = {}
-            sentence = item['sentence']
-            _words = self.tokenizer.tokenize(sentence)
-            _index = self.tokenizer(sentence)
-            _input['words'] = _words
-            _input['index'] = _index.data['input_ids']
-            gold_entity_mentions, gold_event_mentions = [],[]
-            #_inputs.append(_input)
-        return parser.get_data()
+            _arg = {}
+            _arg['sentence'] = item['sentence']
+            _arg['position'] = item['position']
+            entitys, events, relations = [], [], []
+            for j, entity in enumerate(item['golden-entity-mentions']):
+                _entity = {
+                    'id': entity['entity_id'],
+                    'text': entity['text'],
+                    'type': entity['entity-type'],
+                    'position': entity['position'],
+                    'head': entity['head']
+                }
+                entitys.append(_entity)
+            for j, event in enumerate(item['golden-event-mentions']):
+                _event = {
+                    'trigger': event['trigger']['text'],
+                    'trigger-position': event['trigger']['position'],
+                    'arguments': event['arguments'],
+                    'type': event['event_type'],
+                    'position': event['position']
+                }
+                events.append(_event)
+            for j, relation in enumerate(item['golden-relation-mentions']):
+                _relation = {
+                    'id': relation['relation-id'],
+                    'type': relation['relation-type'],
+                    'text': relation['text'],
+                    'position': relation['position'],
+                    'arguments': relation['arguments']
+                }
+                relations.append(_relation)
+            _arg['event'] = events
+            _arg['entity'] = entitys
+            _arg['relation'] = relations
+            args.append(_arg)
+        annotation = {
+           'context': _context,
+            'components': args
+        }
+        return annotation
 
     def get_length(self):
         return len(self.data_subset_map[self.mode])
+
+
 
 
 

@@ -2,7 +2,6 @@ import math
 import torch
 import torch.nn as nn
 
-
 class MLP(nn.Module):
     def __init__(self, n_in, n_out, dropout=0.):
         super().__init__()
@@ -201,3 +200,4 @@ class Biaffine(nn.Module):
         s = s.permute(0, 2, 3, 1)
 
         return s
+

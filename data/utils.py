@@ -1,5 +1,6 @@
 import os
 import stanza
+import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
@@ -75,4 +76,20 @@ def get_files_from_dir(dir,ext = None):
 def get_base_name(fullname: str, ext: str):
     return fullname.split(os.sep)[-1].replace(ext, '')
 
+def pad_2d(data, dim, value=0):
+    new_data = torch.zeros(dim, dtype=torch.bool) + value
+    for j, x in enumerate(data):
+        new_data[j, :x.shape[0], :x.shape[1]] = x
+    return new_data
 
+def pad_3d(data, dim, value=0):
+    new_data = torch.zeros(dim, dtype=torch.bool) + value
+    for j, x in enumerate(data):
+        new_data[j, :, :x.shape[1], :x.shape[2]] = x
+    return new_data
+
+def pad_4d(data, dim, value=0):
+    new_data = torch.zeros(dim, dtype=torch.bool) + value
+    for j, x in enumerate(data):
+        new_data[j, :, :x.shape[1], :x.shape[2], :] = x
+    return new_data
