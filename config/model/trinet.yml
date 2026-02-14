@@ -1,0 +1,3 @@
+name: TriNet
+split: true
+bert_hid_size: 768

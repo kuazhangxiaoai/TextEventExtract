@@ -1,7 +1,7 @@
 import torch
 
 from model.network import TriNet
-from utils import load_config
+from utils import load_config, make_config
 from data import dataset_map, build_dataloader
 
 
@@ -11,10 +11,10 @@ class Trainer:
         self.cfg = cfg
 
     def build_dataset(self):
-        data_cfg = self.cfg['data']
-        dataloader_cfg = self.cfg['dataloader']
-        name, root_path = data_cfg['name'], data_cfg['root_path']
-        self.dataset = dataset_map[name](data_cfg)
+        dataset_cfg = self.cfg['data']['dataset']
+        dataloader_cfg = self.cfg['data']['dataloader']
+        name, root_path = dataset_cfg['name'], dataset_cfg['root_path']
+        self.dataset = dataset_map[name](dataset_cfg)
         self.dataloader = build_dataloader(self.dataset,
                                            dataloader_cfg['batch_size'],
                                            dataloader_cfg['workers'],
@@ -24,16 +24,16 @@ class Trainer:
 
 
     def setup_train(self):
-        hyp = self.cfg['hyp']
+        hyp = self.cfg['hyp']['train']
         self.deivce = torch.device(hyp['device'])
         self.epoach = hyp['epoach']
         self.build_dataset()
         self.setup_model()
 
     def setup_model(self):
-        bert_name = self.cfg['data']['bert']
+        bert_name = self.cfg['data']['dataset']['bert']
         bert_hid_size = self.cfg['model']['bert_hid_size']
-        self.model = TriNet(bert_name,bert_hid_size, 'train', self.tri_type_num, self.cfg['model']['split'], self.deivce)
+        self.model = TriNet(bert_name, bert_hid_size, 'train', self.tri_type_num, self.cfg['model']['split'], self.deivce)
 
 
     def train(self):
@@ -51,7 +51,9 @@ class Trainer:
 
 
 if __name__ == '__main__':
-    cfg = load_config('config/ace.yml')
+    cfg = make_config('config/data/ace.yml',
+                      'config/model/trinet.yml',
+                      'config/config.yml')
     trainer = Trainer(cfg)
     trainer.train()
     print('done')

@@ -1,0 +1,19 @@
+dataset:
+  name: ACE
+  root_path: /media/yanggang/847C02507C023D84/EventExtract/ace_2005_td_v7/data
+  language: Chinese
+  mode: train
+  train_subset: [nw, bn]
+  dev_subset: [bc]
+  test_subset: [cts, wl, un]
+  bert: /media/yanggang/847C02507C023D84/packages/bert-base-chinese
+  stat_path: ace-stat.cache
+dataloader:
+  batch_size: 8
+  workers: 1
+  shuffle: false
+  sample: null
+
+
+
+

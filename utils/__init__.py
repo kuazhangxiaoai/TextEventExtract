@@ -1,5 +1,6 @@
-from utils.utils import load_config
+from utils.utils import load_config,make_config
 
 __all__ = [
-    'load_config'
+    'load_config',
+    'make_config'
 ]

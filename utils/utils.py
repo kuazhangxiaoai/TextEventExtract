@@ -1,14 +1,20 @@
 import yaml
 
-
-from model.network import TriNet
-
-
 def load_config(config_file):
     with open(config_file) as f:
         cfg = yaml.safe_load(f)
     return cfg
 
+def make_config(data_cfg_path, model_cfg_path, hyp_cfg_path):
+    data_cfg = load_config(data_cfg_path)
+    model_cfg = load_config(model_cfg_path)
+    hyp_cfg = load_config(hyp_cfg_path)
+    cfg = {
+        'data': data_cfg,
+        'model': model_cfg,
+        'hyp': hyp_cfg
+    }
+    return cfg
 
 def split_tensor_sliding_window(input_ids, attention_mask, max_len=512, stride=512):
     """

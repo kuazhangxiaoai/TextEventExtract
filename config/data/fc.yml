@@ -1,5 +1,5 @@
-data:
-  name: ACE
+dataset:
+  name: FC
   root_path: /media/yanggang/847C02507C023D84/EventExtract/ace_2005_td_v7/data
   language: Chinese
   mode: train
@@ -13,12 +13,3 @@ dataloader:
   workers: 1
   shuffle: false
   sample: null
-model:
-  name: TriNet
-  split: true
-  bert_hid_size: 768
-hyp:
-  epoach: 100
-  device: cuda
-
-

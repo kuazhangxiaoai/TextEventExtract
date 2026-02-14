@@ -1,0 +1,3 @@
+train:
+  epoach: 100
+  device: cuda
